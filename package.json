@@ -1,8 +1,4 @@
 {
   "name": "finexai",
-  "version": "1.0.0",
-  "scripts": {
-    "dev": "vercel dev",
-    "build": "echo 'No build needed'"
-  }
+  "version": "1.0.0"
 }
