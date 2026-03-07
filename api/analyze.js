@@ -1,5 +1,3 @@
-const https = require('https');
-
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -13,54 +11,43 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: "Missing pdfBase64 or messages" });
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return res.status(500).json({ error: "ANTHROPIC_API_KEY not set" });
-  }
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return res.status(500).json({ error: "GROQ_API_KEY not set" });
 
   const firstQuestion = messages[0].content;
-  const followUpMessages = messages.slice(1).map(m => ({
-    role: m.role,
-    content: m.content,
-  }));
-
-  const requestBody = JSON.stringify({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 1000,
-    system: "Tu es un analyste financier expert. Tu analyses des documents financiers (contrats d'assurance, rapports ESG, prospectus d'investissement, etc.) et tu réponds de manière précise, structurée et professionnelle en français.",
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "document",
-            source: { type: "base64", media_type: "application/pdf", data: pdfBase64 },
-          },
-          { type: "text", text: firstQuestion },
-        ],
-      },
-      ...followUpMessages,
-    ],
-  });
+  const history = messages.slice(1).map(m => ({ role: m.role, content: m.content }));
 
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
+        "Authorization": `Bearer ${apiKey}`,
       },
-      body: requestBody,
+      body: JSON.stringify({
+        model: "meta-llama/llama-4-scout-17b-16e-instruct",
+        max_tokens: 1024,
+        messages: [
+          {
+            role: "system",
+            content: "Tu es un analyste financier expert. Tu analyses des documents financiers (contrats d'assurance, rapports ESG, prospectus, term sheets, etc.) et tu réponds de manière précise et structurée en français.",
+          },
+          {
+            role: "user",
+            content: `Voici un document financier en base64 (PDF). Analyse-le et réponds à la question suivante : ${firstQuestion}\n\nDocument (base64) : ${pdfBase64.substring(0, 8000)}`,
+          },
+          ...history,
+        ],
+      }),
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      return res.status(response.status).json({ error: data.error?.message || "Anthropic API error" });
+      return res.status(response.status).json({ error: data.error?.message || "Groq API error" });
     }
 
-    const answer = data.content?.map(b => b.text || "").join("") || "Pas de réponse.";
+    const answer = data.choices?.[0]?.message?.content || "Pas de réponse.";
     return res.status(200).json({ answer });
 
   } catch (err) {
