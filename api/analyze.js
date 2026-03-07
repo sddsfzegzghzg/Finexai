@@ -1,3 +1,5 @@
+const pdfParse = require("pdf-parse");
+
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -13,6 +15,16 @@ module.exports = async function handler(req, res) {
 
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "GROQ_API_KEY not set" });
+
+  // Extract text from PDF
+  let pdfText = "";
+  try {
+    const buffer = Buffer.from(pdfBase64, "base64");
+    const parsed = await pdfParse(buffer);
+    pdfText = parsed.text.slice(0, 12000); // limit to avoid token overflow
+  } catch (err) {
+    return res.status(500).json({ error: "Impossible de lire le PDF : " + err.message });
+  }
 
   const firstQuestion = messages[0].content;
   const history = messages.slice(1).map(m => ({ role: m.role, content: m.content }));
@@ -30,11 +42,11 @@ module.exports = async function handler(req, res) {
         messages: [
           {
             role: "system",
-            content: "Tu es un analyste financier expert. Tu analyses des documents financiers (contrats d'assurance, rapports ESG, prospectus, term sheets, etc.) et tu réponds de manière précise et structurée en français.",
+            content: "Tu es un analyste financier expert. Tu analyses des documents financiers (contrats d'assurance, rapports ESG, prospectus, term sheets, etc.) et tu réponds de manière précise et structurée en français. Réponds uniquement en te basant sur le contenu du document fourni.",
           },
           {
             role: "user",
-            content: `Voici un document financier en base64 (PDF). Analyse-le et réponds à la question suivante : ${firstQuestion}\n\nDocument (base64) : ${pdfBase64.substring(0, 8000)}`,
+            content: `Voici le contenu extrait d'un document financier :\n\n${pdfText}\n\n---\n\nQuestion : ${firstQuestion}`,
           },
           ...history,
         ],
@@ -42,7 +54,6 @@ module.exports = async function handler(req, res) {
     });
 
     const data = await response.json();
-
     if (!response.ok) {
       return res.status(response.status).json({ error: data.error?.message || "Groq API error" });
     }
